@@ -493,7 +493,7 @@ func (s *Server) syncPool() {
 		if r.Disabled {
 			continue // a disabled router is not connected to at all
 		}
-		s.declareRecordedInterfaces(r.ID)
+		s.declareRecordedInterfaces(r.ID, routers.DefaultIfFor(r.DefaultIf, global))
 		s.declareReporting(r)
 		cfgs = append(cfgs, routers.RouterConfig{
 			ID: r.ID, Label: r.Label, Host: r.Host, Port: r.Port,
@@ -579,7 +579,7 @@ func (s *Server) globalDefaultIf() string {
 // which costs no extra router channel because `/interface/monitor-traffic`
 // takes a comma list — is a separate change needing somewhere for the operator
 // to say which ones.
-func (s *Server) declareRecordedInterfaces(routerID) {
+func (s *Server) declareRecordedInterfaces(routerID, defaultIf string) {
     // nil hoặc slice rỗng → Records() sẽ hiểu là "không giới hạn, ghi mọi interface"
     s.historyWire.SetRecordedInterfaces(routerID, nil)
 }

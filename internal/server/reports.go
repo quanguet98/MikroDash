@@ -47,6 +47,24 @@ import (
 // reportsPrefix is where the report endpoints are served.
 const reportsPrefix = "/api/reports/"
 
+const ifaceWanTotal = "__wan_total__"
+
+func (s *Server) wanIfaces(routerID string) []string {
+    if s.auditDB == nil {
+        return nil
+    }
+    raw, err := s.auditDB.Doc(routerID, sitedoc.KindWANUplinks)
+    if err != nil || raw == nil {
+        return nil
+    }
+    u := sitedoc.CleanWANUplinks(raw)
+    m := u.Manual()
+    if m == nil || len(m) == 0 {
+        return nil
+    }
+    return m
+}
+
 // registerReports adds the read endpoints to a mux.
 func (s *Server) registerReports(mux *http.ServeMux) {
 	mux.HandleFunc(reportsPrefix+"ping", s.reportHandler(s.reportPing))
@@ -218,6 +236,20 @@ func (s *Server) reportTraffic(w http.ResponseWriter, _ *http.Request, q reportR
 			return
 		}
 		writeJSON(w, map[string]any{"ok": true, "interfaces": ifaces})
+		return
+	}
+	if q.Iface == ifaceWanTotal {
+		ifaces := s.wanIfaces(q.RouterID)
+		if len(ifaces) == 0 {
+			writeJSON(w, map[string]any{"ok": true, "rows": []any{}, "summary": map[string]any{}})
+			return
+		}
+		rows, summary, err := s.trafficWanTotal(q.RouterID, ifaces, q.From, q.To, q.Aggregate)
+		if err != nil {
+			writeJSONErrFrom(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true, "rows": rows, "summary": summary})
 		return
 	}
 	var rows any
