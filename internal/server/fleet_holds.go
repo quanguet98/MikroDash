@@ -3,8 +3,7 @@ package server
 import (
 	"log"
 
-	"mikrodash/internal/collection"
-	//"mikrodash/internal/routers"
+		"mikrodash/internal/collection"
 	"mikrodash/internal/store"
 )
 
@@ -133,7 +132,6 @@ func (s *Server) syncFleetHolds() {
 	// no default interface recorded an empty traffic stream — and these are the
 	// sessions that run when nobody is watching, so their history simply did not
 	// exist. See `syncPool`.
-	//global := s.globalDefaultIf()
 	warmSkip := s.warmExclusions()
 
 	for _, r := range all {

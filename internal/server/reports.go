@@ -283,6 +283,20 @@ func (s *Server) reportBandwidth(w http.ResponseWriter, _ *http.Request, q repor
 		writeJSON(w, map[string]any{"ok": true, "interfaces": ifaces})
 		return
 	}
+	if q.Iface == ifaceWanTotal {
+		ifaces := s.wanIfaces(q.RouterID)
+		if len(ifaces) == 0 {
+			writeJSON(w, map[string]any{"ok": true, "rows": []any{}, "summary": map[string]any{}})
+			return
+		}
+		rows, summary, err := s.bandwidthWanTotal(q.RouterID, ifaces, q.From, q.To, q.Aggregate)
+		if err != nil {
+			writeJSONErrFrom(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true, "rows": rows, "summary": summary})
+		return
+	}
 	var rows any
 	var err error
 	if q.Aggregate != "" {
@@ -397,13 +411,11 @@ func (s *Server) ifaceSummary(routerID, iface string, from, to int64) (map[strin
 }
 
 // trafficWanTotal gộp traffic của nhiều interface WAN thành một series tổng.
-// rows: []db.TrafficSample với Interface = ifaceWanTotal; summary tối thiểu.
 func (s *Server) trafficWanTotal(
     routerID string, ifaces []string, from, to int64, agg string,
 ) ([]db.TrafficSample, map[string]any, error) {
 
     byTS := make(map[int64]*db.TrafficSample)
-    totalSamples := 0
 
     for _, iface := range ifaces {
         var rows []db.TrafficSample
@@ -418,23 +430,18 @@ func (s *Server) trafficWanTotal(
         }
         for _, r := range rows {
             ts := r.TS
-            dst := byTS[ts]
-            if dst == nil {
-                // tạo row mới cho timestamp này
-                copy := db.TrafficSample{
+            dst, ok := byTS[ts]
+            if !ok {
+                dst = &db.TrafficSample{
                     TS:        ts,
                     Interface: ifaceWanTotal,
-                    RxMbps:    0,
-                    TxMbps:    0,
                 }
-                byTS[ts] = &copy
-                dst = &copy
+                byTS[ts] = dst
             }
             dst.RxMbps += r.RxMbps
             dst.TxMbps += r.TxMbps
 
             if agg != "" {
-                // giữ max peak trong bucket
                 if r.RxMaxMbps != nil {
                     if dst.RxMaxMbps == nil || *r.RxMaxMbps > *dst.RxMaxMbps {
                         v := *r.RxMaxMbps
@@ -448,24 +455,88 @@ func (s *Server) trafficWanTotal(
                     }
                 }
                 dst.SampleCount += r.SampleCount
-                totalSamples += r.SampleCount
-            } else {
-                totalSamples++
             }
         }
     }
 
-    // flatten + sort theo TS tăng dần
     out := make([]db.TrafficSample, 0, len(byTS))
+    totalSamples := 0
     for _, v := range byTS {
         out = append(out, *v)
+        if agg != "" {
+            totalSamples += v.SampleCount
+        } else {
+            totalSamples++
+        }
     }
     sort.Slice(out, func(i, j int) bool { return out[i].TS < out[j].TS })
 
-    // Summary tối thiểu: chỉ báo số samples, còn lại UI sẽ hiển thị "—"
-    summary := map[string]any{
-        "trafficSamples": totalSamples,
+    summary := map[string]any{"trafficSamples": totalSamples}
+    return out, summary, nil
+}
+
+// bandwidthWanTotal gộp bandwidth của nhiều interface WAN thành một series tổng.
+func (s *Server) bandwidthWanTotal(
+    routerID string, ifaces []string, from, to int64, agg string,
+) ([]db.BandwidthSample, map[string]any, error) {
+
+    byTS := make(map[int64]*db.BandwidthSample)
+
+    for _, iface := range ifaces {
+        var rows []db.BandwidthSample
+        var err error
+        if agg != "" {
+            rows, err = s.auditDB.BandwidthSamplesAgg(routerID, iface, from, to, agg)
+        } else {
+            rows, err = s.auditDB.BandwidthSamples(routerID, iface, from, to)
+        }
+        if err != nil {
+            return nil, nil, err
+        }
+        for _, r := range rows {
+            ts := r.TS
+            dst, ok := byTS[ts]
+            if !ok {
+                dst = &db.BandwidthSample{
+                    TS:        ts,
+                    Interface: ifaceWanTotal,
+                }
+                byTS[ts] = dst
+            }
+            dst.RxMb += r.RxMb
+            dst.TxMb += r.TxMb
+
+            if agg != "" {
+                if r.RxMaxMb != nil {
+                    if dst.RxMaxMb == nil || *r.RxMaxMb > *dst.RxMaxMb {
+                        v := *r.RxMaxMb
+                        dst.RxMaxMb = &v
+                    }
+                }
+                if r.TxMaxMb != nil {
+                    if dst.TxMaxMb == nil || *r.TxMaxMb > *dst.TxMaxMb {
+                        v := *r.TxMaxMb
+                        dst.TxMaxMb = &v
+                    }
+                }
+                dst.SampleCount += r.SampleCount
+            }
+        }
     }
+
+    out := make([]db.BandwidthSample, 0, len(byTS))
+    totalSamples := 0
+    for _, v := range byTS {
+        out = append(out, *v)
+        if agg != "" {
+            totalSamples += v.SampleCount
+        } else {
+            totalSamples++
+        }
+    }
+    sort.Slice(out, func(i, j int) bool { return out[i].TS < out[j].TS })
+
+    summary := map[string]any{"bandwidthSamples": totalSamples}
     return out, summary, nil
 }
 
