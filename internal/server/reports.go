@@ -28,20 +28,22 @@ package server
 // equivalence was claimed and where it stops being true.
 
 import (
-	"bytes"
-	"crypto/rand"
-	"encoding/json"
-	"fmt"
-	"log"
-	"net/http"
-	"strconv"
-	"strings"
-	"time"
+    "bytes"
+    "crypto/rand"
+    "encoding/json"
+    "fmt"
+    "log"
+    "net/http"
+    "sort"
+    "strconv"
+    "strings"
+    "time"
 
-	"mikrodash/internal/audit"
-	"mikrodash/internal/db"
-	"mikrodash/internal/reportpdf"
-	"mikrodash/internal/reports"
+    "mikrodash/internal/audit"
+    "mikrodash/internal/db"
+    "mikrodash/internal/reportpdf"
+    "mikrodash/internal/reports"
+    "mikrodash/internal/sitedoc"
 )
 
 // reportsPrefix is where the report endpoints are served.
@@ -392,6 +394,79 @@ func (s *Server) ifaceSummary(routerID, iface string, from, to int64) (map[strin
 		"rxP95Pct":  reports.UtilPct(t.RxP95Mbps, down),
 		"txP95Pct":  reports.UtilPct(t.TxP95Mbps, up),
 	}, nil
+}
+
+// trafficWanTotal gộp traffic của nhiều interface WAN thành một series tổng.
+// rows: []db.TrafficSample với Interface = ifaceWanTotal; summary tối thiểu.
+func (s *Server) trafficWanTotal(
+    routerID string, ifaces []string, from, to int64, agg string,
+) ([]db.TrafficSample, map[string]any, error) {
+
+    byTS := make(map[int64]*db.TrafficSample)
+    totalSamples := 0
+
+    for _, iface := range ifaces {
+        var rows []db.TrafficSample
+        var err error
+        if agg != "" {
+            rows, err = s.auditDB.TrafficSamplesAgg(routerID, iface, from, to, agg)
+        } else {
+            rows, err = s.auditDB.TrafficSamples(routerID, iface, from, to)
+        }
+        if err != nil {
+            return nil, nil, err
+        }
+        for _, r := range rows {
+            ts := r.TS
+            dst := byTS[ts]
+            if dst == nil {
+                // tạo row mới cho timestamp này
+                copy := db.TrafficSample{
+                    TS:        ts,
+                    Interface: ifaceWanTotal,
+                    RxMbps:    0,
+                    TxMbps:    0,
+                }
+                byTS[ts] = &copy
+                dst = &copy
+            }
+            dst.RxMbps += r.RxMbps
+            dst.TxMbps += r.TxMbps
+
+            if agg != "" {
+                // giữ max peak trong bucket
+                if r.RxMaxMbps != nil {
+                    if dst.RxMaxMbps == nil || *r.RxMaxMbps > *dst.RxMaxMbps {
+                        v := *r.RxMaxMbps
+                        dst.RxMaxMbps = &v
+                    }
+                }
+                if r.TxMaxMbps != nil {
+                    if dst.TxMaxMbps == nil || *r.TxMaxMbps > *dst.TxMaxMbps {
+                        v := *r.TxMaxMbps
+                        dst.TxMaxMbps = &v
+                    }
+                }
+                dst.SampleCount += r.SampleCount
+                totalSamples += r.SampleCount
+            } else {
+                totalSamples++
+            }
+        }
+    }
+
+    // flatten + sort theo TS tăng dần
+    out := make([]db.TrafficSample, 0, len(byTS))
+    for _, v := range byTS {
+        out = append(out, *v)
+    }
+    sort.Slice(out, func(i, j int) bool { return out[i].TS < out[j].TS })
+
+    // Summary tối thiểu: chỉ báo số samples, còn lại UI sẽ hiển thị "—"
+    summary := map[string]any{
+        "trafficSamples": totalSamples,
+    }
+    return out, summary, nil
 }
 
 // capacityOf reads the configured line speeds, defaulting the way build.js does.
