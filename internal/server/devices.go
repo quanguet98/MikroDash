@@ -579,7 +579,7 @@ func (s *Server) globalDefaultIf() string {
 // which costs no extra router channel because `/interface/monitor-traffic`
 // takes a comma list — is a separate change needing somewhere for the operator
 // to say which ones.
-func (s *Server) declareRecordedInterfaces(routerID, defaultIf string) {
+func (s *Server) declareRecordedInterfaces(routerID) {
     // nil hoặc slice rỗng → Records() sẽ hiểu là "không giới hạn, ghi mọi interface"
     s.historyWire.SetRecordedInterfaces(routerID, nil)
 }
