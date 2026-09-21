@@ -246,27 +246,6 @@ export function restorePreset(): string {
   return saved;
 }
 
-const SPECIAL_WAN = '__wan_total__';
-
-export function fillIfaceSelect(id: string, ifaces: string[]): string {
-  const sel = el<HTMLSelectElement>(id);
-  if (!sel) return ifaces[0] || '';
-  const current = sel.value;
-  const opts: string[] = [];
-
-  // Interface ảo
-  if (ifaces.length > 1) {  // hoặc luôn thêm
-    opts.push(`<option value="${SPECIAL_WAN}">All WANs (sum)</option>`);
-  }
-
-  // Các interface thực
-  opts.push(...ifaces.map((i) =>
-    `<option value="${esc(i)}">${esc(i)}</option>`));
-
-  sel.innerHTML = opts.join('');
-  if (current && ifaces.indexOf(current) !== -1) sel.value = current;
-  return sel.value || '';
-}
 
 export function savePreset(val: string): void {
   try {
@@ -330,11 +309,25 @@ function getJSON<T>(url: string): Promise<Envelope<T>> {
  *
  * Exported for the reports-iface check; the page calls it internally.
  */
+
+const SPECIAL_WAN = '__wan_total__';
+
 export function fillIfaceSelect(id: string, ifaces: string[]): string {
   const sel = el<HTMLSelectElement>(id);
   if (!sel) return ifaces[0] || '';
   const current = sel.value;
-  sel.innerHTML = ifaces.map((i) => '<option value="' + esc(i) + '">' + esc(i) + '</option>').join('');
+  const opts: string[] = [];
+
+  // Interface ảo
+  if (ifaces.length > 1) {  // hoặc luôn thêm
+    opts.push(`<option value="${SPECIAL_WAN}">All WANs (sum)</option>`);
+  }
+
+  // Các interface thực
+  opts.push(...ifaces.map((i) =>
+    `<option value="${esc(i)}">${esc(i)}</option>`));
+
+  sel.innerHTML = opts.join('');
   if (current && ifaces.indexOf(current) !== -1) sel.value = current;
   return sel.value || '';
 }
